@@ -28,3 +28,4 @@ model {
     target += log_sum_exp(ps);
   }
 }
+
