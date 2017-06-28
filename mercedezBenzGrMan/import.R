@@ -257,56 +257,80 @@ lp3 = function(theta, data){
   ## see here https://grollchristian.wordpress.com/2013/04/30/students-t-location-scale/
   dt_ls = function(x, df, mu, a) 1/a * dt((x - mu)/a, df)
   ## likelihood function
-  lf = function(dat, pred){
-    return(log(dt_ls(dat, nu, pred, sigma)))
+  lf = function(dat, nu, pred, sigma){
+    return(dt_ls(dat, nu, pred, sigma))
   }
-  nu = exp(theta['nu']) ## normality parameter for t distribution
-  sigma = exp(theta['sigma']) # scale parameter for t distribution
-  m = theta[1]
+  nu1 = exp(theta['nu1']) ## normality parameter for t distribution
+  nu2 = exp(theta['nu2']) ## normality parameter for t distribution
+  sigma1 = exp(theta['sigma1']) # scale parameter for t distribution
+  sigma2 = exp(theta['sigma2']) # scale parameter for t distribution
+  m1 = theta['mu1']
+  m2 = theta['mu2']
+  mix = 0.5# logit.inv(theta['mix'])
   d = data$vector # observed data vector
-  if (nu < 1) return(-Inf)
-  log.lik = sum(lf(d, m))
-  log.prior = 1
+  if (nu1 < 1 || nu2 < 1) return(-Inf)
+  log.lik = sum(log(lf(d, nu1, m1, sigma1) * mix + lf(d, nu2, m2, sigma2) * (1-mix)))
+  log.prior = 1 + dunif(nu1, 1, 10, log=T) + dunif(nu2, 1, 10, log=T)
   log.post = log.lik + log.prior
   return(log.post)
 }
 
 # sanity check for function
+library(numDeriv)
+library(car)
+logit.inv = function(p) {exp(p)/(exp(p)+1) }
 # choose a starting value
-start = c('mu'=mean(ivTime), 'sigma'=log(sd(ivTime)), 'nu'=log(2))
+start = c('mu1'=mean(ivTime), 'mu2'=mean(ivTime), 'sigma1'=log(sd(ivTime)), 
+          'sigma2'=log(sd(ivTime)), 'nu1'=log(2), 'nu2'=log(2))#, 'mix'=logit(0.5))
 lp3(start, lData)
 
 op = optim(start, lp3, control = list(fnscale = -1), data=lData)
 op$par
-exp(op$par[2:3])
+logit.inv(op$par['mix'])
+
+mylaplace = function (logpost, mode, data) 
+{
+  options(warn = -1)
+  fit = optim(mode, logpost, gr = NULL,  
+              control = list(fnscale = -1, maxit=10000), method='Nelder-Mead', data=data)
+  # calculate hessian
+  fit$hessian = (hessian(logpost, fit$par, data=data))
+  colnames(fit$hessian) = names(mode)
+  rownames(fit$hessian) = names(mode)
+  options(warn = 0)
+  mode = fit$par
+  h = -solve(fit$hessian)
+  stuff = list(mode = mode, var = h, converge = fit$convergence == 
+                 0)
+  return(stuff)
+}
+
 
 ## try the laplace function from LearnBayes
-fit3 = laplace(lp3, start, lData)
+fit3 = mylaplace(lp3, start, lData)
 fit3
 se3 = sqrt(diag(fit3$var))
 
 # taking the sample
 tpar = list(m=fit3$mode, var=fit3$var*2, df=4)
-muSample2.op = sir(lp3, tpar, 1000, lData)
-
-sigSample.op = muSample2.op[,'sigma']
-muSample.op = muSample2.op[,'mu']
-nuSample.op = muSample2.op[,'nu']
+muSample2.op = sir(lp3, tpar, 10000, lData)
 
 ########## simulate 200 test quantities
 mDraws = matrix(NA, nrow = length(ivTime), ncol=200)
-mThetas = matrix(NA, nrow=200, ncol=3)
-colnames(mThetas) = c('mu', 'sd', 'nu')
+# mThetas = matrix(NA, nrow=200, ncol=3)
+# colnames(mThetas) = c('mu', 'sd', 'nu')
 
 rt_ls <- function(n, df, mu, a) rt(n,df)*a + mu
 
 for (i in 1:200){
   p = sample(1:1000, size = 1)
-  s = exp(sigSample.op[p])
-  m = muSample.op[p]
-  n = exp(nuSample.op[p])
-  mDraws[,i] = rt_ls(length(ivTime), n, m, s)
-  mThetas[i,] = c(m, s, n)
+  ## this will take a sample from a contaminated normal distribution
+  sam = function() {
+    ind = rbinom(1, 1, 0.5)
+    return(ind * rt_ls(1, exp(muSample2.op[p,'nu1']), muSample2.op[p,'mu1'], exp(muSample2.op[p,'sigma1'])) +
+             (1-ind) * rt_ls(1, exp(muSample2.op[p,'nu2']), muSample2.op[p,'mu2'], exp(muSample2.op[p,'sigma2'])))
+  }
+  mDraws[,i] = replicate(length(ivTime), sam())
 }
 
 mDraws.t = mDraws
