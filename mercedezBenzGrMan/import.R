@@ -251,6 +251,24 @@ t2 = T1_mean(lData$vector)
 mChecks['Mean', 2] = getPValue(t1, t2)
 
 
+############################### fit a model using stan to estimate mixture parameters
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+i = sample(1:length(ivTime), size = 300)
+stanDso = rstan::stan_model(file='mercedezBenzGrMan/fitNormalMixture.stan')
+lStanData = list(Ntotal=length(ivTime[i]), y=ivTime[i], iMixtures=3)
+fit.stan = sampling(stanDso, data=lStanData, iter=1000, chains=4, cores=4)
+print(fit.stan, digi=3)
+
+
+
+
+
+
+
+
+
 ######################### try a third distribution, t with a low degrees of freedom
 lp3 = function(theta, data){
   # function to use to use scale parameter
