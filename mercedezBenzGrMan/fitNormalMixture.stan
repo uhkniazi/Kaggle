@@ -5,7 +5,8 @@ data {
 }
 
 parameters { // the parameters to track
-    ordered[iMixtures] mu; // number of means to track
+    //ordered[iMixtures] mu; // number of means to track
+    real mu[iMixtures]; // number of means to track
     real<lower=0> sigma[iMixtures]; // scale parameters for normal distribution  
     simplex[iMixtures] iMixWeights; // weights for the number of mixtures (should sum to one)
   }
