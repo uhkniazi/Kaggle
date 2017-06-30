@@ -255,95 +255,129 @@ mChecks['Mean', 2] = getPValue(t1, t2)
 library(rstan)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
-stanDso = rstan::stan_model(file='mercedezBenzGrMan/fitNormalMixture.stan')
+stanDso = rstan::stan_model(file='mercedezBenzGrMan/fitTandNormalMixture.stan')
 lStanData = list(Ntotal=length(ivTime), y=ivTime, iMixtures=3)
-fit.stan = sampling(stanDso, data=lStanData, iter=5000, chains=1)
+initf = function(chain_id = 1) {
+  list(mu = c(105, 90, 103), sigma = c(7, 2, 19), nu = c(4, 4, 4), iMixWeights=c(0.5, 0.3, 0.2))
+} 
+l = lapply(1, initf)
+fit.stan = sampling(stanDso, data=lStanData, iter=5000, chains=1, init=l )
 print(fit.stan, digi=3)
 traceplot(fit.stan)
 
 
-# ######################### try a third distribution, t with a low degrees of freedom
-# lp3 = function(theta, data){
-#   # function to use to use scale parameter
-#   ## see here https://grollchristian.wordpress.com/2013/04/30/students-t-location-scale/
-#   dt_ls = function(x, df, mu, a) 1/a * dt((x - mu)/a, df)
-#   ## likelihood function
-#   lf = function(dat, nu, pred, sigma){
-#     return(dt_ls(dat, nu, pred, sigma))
-#   }
-#   nu1 = exp(theta['nu1']) ## normality parameter for t distribution
-#   nu2 = exp(theta['nu2']) ## normality parameter for t distribution
-#   sigma1 = exp(theta['sigma1']) # scale parameter for t distribution
-#   sigma2 = exp(theta['sigma2']) # scale parameter for t distribution
-#   m1 = theta['mu1']
-#   m2 = theta['mu2']
-#   mix = 0.5# logit.inv(theta['mix'])
-#   d = data$vector # observed data vector
-#   if (nu1 < 1 || nu2 < 1) return(-Inf)
-#   log.lik = sum(log(lf(d, nu1, m1, sigma1) * mix + lf(d, nu2, m2, sigma2) * (1-mix)))
-#   log.prior = 1 + dunif(nu1, 1, 10, log=T) + dunif(nu2, 1, 10, log=T)
-#   log.post = log.lik + log.prior
-#   return(log.post)
-# }
+######################### try a third distribution, t with a low degrees of freedom
+lp3 = function(theta, data){
+  # function to use to use scale parameter
+  ## see here https://grollchristian.wordpress.com/2013/04/30/students-t-location-scale/
+  #dt_ls = function(x, df, mu, a) 1/a * dt((x - mu)/a, df)
+  ## likelihood function
+  # lf = function(dat, nu, pred, sigma){
+  #   return(dt_ls(dat, nu, pred, sigma))
+  # }
+  # nu1 = exp(theta['nu1']) ## normality parameter for t distribution
+  # nu2 = exp(theta['nu2']) ## normality parameter for t distribution
+  # nu3 = exp(theta['nu3']) ## normality parameter for t distribution
+  sigma1 = exp(theta['sigma1']) # scale parameter for t distribution
+  sigma2 = exp(theta['sigma2']) # scale parameter for t distribution
+  sigma3 = exp(theta['sigma3']) # scale parameter for t distribution
+  m1 = theta['mu1']
+  m2 = theta['mu2']
+  m3 = theta['mu3']
+  mix1 = 0.5 #logit.inv(theta['mix1'])
+  mix2 = 0.3 #logit.inv(theta['mix2'])
+  mix3 = 0.2 #logit.inv(theta['mix3'])
+  d = data$vector # observed data vector
+  if (sigma1 < 1 || sigma2 < 1 || sigma3 < 1) return(-Inf)
+  log.lik1 = (dnorm(d, m1, sigma1) * (mix1))
+  log.lik2 = (dnorm(d, m2, sigma2) * (mix2))
+  log.lik3 = (dnorm(d, m3, sigma3) * (mix3))
+  log.lik = sum(log(log.lik1 + log.lik2 + log.lik3))
+  log.prior = 1 + dcauchy(sigma1, 0, 2.5, log=T) + dcauchy(sigma2, 0, 2.5, log=T) + dcauchy(sigma3, 0, 2.5, log=T) # +
+    #log(ddirichlet(c(mix1, mix2, mix3), alpha = c(2, 2, 2)))
+  log.post = log.lik + log.prior
+  return(log.post)
+}
 
-# # sanity check for function
-# library(numDeriv)
-# library(car)
-# logit.inv = function(p) {exp(p)/(exp(p)+1) }
-# # choose a starting value
-# start = c('mu1'=mean(ivTime), 'mu2'=mean(ivTime), 'sigma1'=log(sd(ivTime)), 
-#           'sigma2'=log(sd(ivTime)), 'nu1'=log(2), 'nu2'=log(2))#, 'mix'=logit(0.5))
-# lp3(start, lData)
-# 
-# op = optim(start, lp3, control = list(fnscale = -1), data=lData)
-# op$par
-# logit.inv(op$par['mix'])
-# 
-# mylaplace = function (logpost, mode, data) 
-# {
-#   options(warn = -1)
-#   fit = optim(mode, logpost, gr = NULL,  
-#               control = list(fnscale = -1, maxit=10000), method='Nelder-Mead', data=data)
-#   # calculate hessian
-#   fit$hessian = (hessian(logpost, fit$par, data=data))
-#   colnames(fit$hessian) = names(mode)
-#   rownames(fit$hessian) = names(mode)
-#   options(warn = 0)
-#   mode = fit$par
-#   h = -solve(fit$hessian)
-#   stuff = list(mode = mode, var = h, converge = fit$convergence == 
-#                  0)
-#   return(stuff)
-# }
-# 
-# 
-# ## try the laplace function from LearnBayes
-# fit3 = mylaplace(lp3, start, lData)
-# fit3
-# se3 = sqrt(diag(fit3$var))
-# 
-# # taking the sample
-# tpar = list(m=fit3$mode, var=fit3$var*2, df=4)
-# muSample2.op = sir(lp3, tpar, 10000, lData)
+# sanity check for function
+library(numDeriv)
+library(car)
+library(MCMCpack)
+logit.inv = function(p) {exp(p)/(exp(p)+1) }
+# choose a starting value
+start = c('mu1'=mean(ivTime), 'mu2'=mean(ivTime), 'mu3'=mean(ivTime), 'sigma1'=log(sd(ivTime)),
+          'sigma2'=log(sd(ivTime)), 'sigma3'=log(sd(ivTime)))#, 'mix1'=logit(0.5), 'mix2'=logit(0.3), 'mix3'=logit(0.2))
+lp3(start, lData)
+
+start2 = temp2[-c(7:9)]
+start2[4:6] = log(start2[4:6])
+#start2[7:9] = logit(start2[7:9])
+lp3(start2, lData)
+fit.stan
+
+op = optim(start, lp3, control = list(fnscale = -1), data=lData)
+op$par
+logit.inv(op$par[7:9])
+
+mylaplace = function (logpost, mode, data)
+{
+  options(warn = -1)
+  fit = optim(mode, logpost, gr = NULL,
+              control = list(fnscale = -1, maxit=10000), method='Nelder-Mead', data=data)
+  # calculate hessian
+  fit$hessian = (hessian(logpost, fit$par, data=data))
+  colnames(fit$hessian) = names(mode)
+  rownames(fit$hessian) = names(mode)
+  options(warn = 0)
+  mode = fit$par
+  h = -solve(fit$hessian)
+  stuff = list(mode = mode, var = h, converge = fit$convergence ==
+                 0)
+  return(stuff)
+}
+
+
+## try the laplace function from LearnBayes
+fit3 = mylaplace(lp3, start, lData)
+fit3
+se3 = sqrt(diag(fit3$var))
+
+# taking the sample
+tpar = list(m=fit3$mode, var=fit3$var*2, df=4)
+muSample2.op = sir(lp3, tpar, 10000, lData)
 m = extract(fit.stan)
 muSample2.op = do.call(cbind, m)
 muSample2.op = muSample2.op[,-(ncol(muSample2.op))]
-colnames(muSample2.op) = c('mu1', 'mu2', 'mu3', 'sigma1', 'sigma2', 'sigma3', 'mix1', 'mix2', 'mix3')
+colnames(muSample2.op) = c('mu1', 'mu2', 'mu3', 'sigma1', 'sigma2', 'sigma3', 'nu1', 'nu2', 'nu3', 'mix1', 'mix2', 'mix3')
 
 ########## simulate 200 test quantities
 mDraws = matrix(NA, nrow = length(ivTime), ncol=2000)
 
-for (i in 1:2000){
+for (i in 1:200){
   p = sample(1:nrow(muSample2.op), size = 1)
   ## this will take a sample from a mixture distribution distribution
   sam = function() {
-    ind = rmultinom(1, 1, muSample2.op[p, c('mix1', 'mix2', 'mix3')])
-    return(ind[1, 1] * rnorm(1, mean = muSample2.op[p,'mu1'], sd = muSample2.op[p,'sigma1']) +
-             ind[2, 1] * rnorm(1, mean = muSample2.op[p,'mu2'], sd = muSample2.op[p,'sigma2']) + 
-             ind[3, 1] * rnorm(1, mean = muSample2.op[p,'mu3'], sd = muSample2.op[p,'sigma3']))
+    ind = c(0.5, 0.3, 0.2)#rmultinom(1, 1, muSample2.op[p, c('mix1', 'mix2', 'mix3')])
+    return(ind[1] * rnorm(1, mean = muSample2.op[p,'mu1'], sd = exp(muSample2.op[p,'sigma1'])) +
+             ind[2] * rnorm(1, mean = muSample2.op[p,'mu2'], sd = exp(muSample2.op[p,'sigma2'])) +
+             ind[3] * rnorm(1, mean = muSample2.op[p,'mu3'], sd = exp(muSample2.op[p,'sigma3'])))
   }
   mDraws[,i] = replicate(length(ivTime), sam())
 }
+# rt_ls <- function(n, df, mu, a) rt(n,df)*a + mu
+# for (i in 1:200){
+#   p = sample(1:nrow(muSample2.op), size = 1)
+#   ## this will take a sample from a mixture distribution distribution
+#   sam = function() {
+#     ind = rmultinom(1, 1, muSample2.op[p, c('mix1', 'mix2', 'mix3')])
+#     return(ind[1, 1] * rt_ls(1, df = muSample2.op[p,'nu1'], mu = muSample2.op[p,'mu1'], a = muSample2.op[p,'sigma1']) +
+#              ind[2, 1] * rt_ls(1, df = muSample2.op[p,'nu2'], mu = muSample2.op[p,'mu2'], a = muSample2.op[p,'sigma2']) + 
+#              ind[3, 1] * rt_ls(1, df = muSample2.op[p,'nu3'], mu = muSample2.op[p,'mu3'], a = muSample2.op[p,'sigma3']))
+#   }
+#   mDraws[,i] = replicate(length(ivTime), sam())
+# }
+
+
 
 mDraws.t = mDraws
 ## get the p-values for the test statistics
