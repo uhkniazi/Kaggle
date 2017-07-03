@@ -152,9 +152,9 @@ T1_mean = function(Y){
 } 
 
 ## mChecks
-mChecks = matrix(NA, nrow=5, ncol=4)
+mChecks = matrix(NA, nrow=5, ncol=6)
 rownames(mChecks) = c('Variance', 'Symmetry', 'Max', 'Min', 'Mean')
-colnames(mChecks) = c('Normal', 'NormalCont', 'T', 'Cauchy')
+colnames(mChecks) = c('Normal', 'NormalCont', 'T', 'Cauchy', 'NormMix', 'Tmix')
 ########## simulate 200 test quantities
 mDraws = matrix(NA, nrow = length(ivTime), ncol=200)
 mThetas = matrix(NA, nrow=200, ncol=2)
@@ -468,17 +468,17 @@ options(mc.cores = parallel::detectCores())
 stanDso = rstan::stan_model(file='mercedezBenzGrMan/fitNormalMixture.stan')
 
 ## take a subset of the data
-i = sample(1:length(ivTime), size = 300, replace = F)
+i = 1:length(ivTime); #sample(1:length(ivTime), size = 300, replace = F)
 lStanData = list(Ntotal=length(ivTime[i]), y=ivTime[i], iMixtures=2)
 
 ## give initial values
 initf = function(chain_id = 1) {
-  list(mu = c(90, 110), sigma = c(11, 11*2), iMixWeights=c(0.5, 0.5))
+  list(mu = c(90, 120), sigma = c(11, 11*2), iMixWeights=c(0.5, 0.5))
 } 
 
 ## give initial values function to stan
 # l = lapply(1, initf)
-fit.stan = sampling(stanDso, data=lStanData, iter=600, chains=4, init=initf, cores=4)
+fit.stan = sampling(stanDso, data=lStanData, iter=1000, chains=4, init=initf, cores=4)
 print(fit.stan, digi=3)
 traceplot(fit.stan)
 
@@ -528,13 +528,13 @@ mDraws.normMix = mDraws
 t1 = apply(mDraws, 2, T1_var)
 mChecks['Variance', 5] = getPValue(t1, var(lData$vector))
 
-## test for symmetry
-t1 = sapply(seq_along(1:200), function(x) T1_symmetry(mDraws[,x], mThetas[x,'mu']))
-t2 = sapply(seq_along(1:200), function(x) T1_symmetry(lData$vector, mThetas[x,'mu']))
-plot(t2, t1, xlim=c(-12, 12), ylim=c(-12, 12), pch=20, xlab='Realized Value T(Yobs, Theta)',
-     ylab='Test Value T(Yrep, Theta)', main='Symmetry Check (T Distribution)')
-abline(0,1)
-mChecks['Symmetry', 5] = NA; #getPValue(t1, t2) 
+# ## test for symmetry
+# t1 = sapply(seq_along(1:200), function(x) T1_symmetry(mDraws[,x], mThetas[x,'mu']))
+# t2 = sapply(seq_along(1:200), function(x) T1_symmetry(lData$vector, mThetas[x,'mu']))
+# plot(t2, t1, xlim=c(-12, 12), ylim=c(-12, 12), pch=20, xlab='Realized Value T(Yobs, Theta)',
+#      ylab='Test Value T(Yrep, Theta)', main='Symmetry Check (T Distribution)')
+# abline(0,1)
+# mChecks['Symmetry', 5] = NA; #getPValue(t1, t2) 
 
 ## testing for outlier detection i.e. the minimum value show in the histograms earlier
 t1 = apply(mDraws, 2, T1_min)
@@ -561,12 +561,12 @@ lStanData = list(Ntotal=length(ivTime[i]), y=ivTime[i], iMixtures=2)
 
 ## give initial values
 initf = function(chain_id = 1) {
-  list(mu = c(90, 110), sigma = c(11, 11*2), iMixWeights=c(0.5, 0.5), nu=c(3, 3))
+  list(mu = c(90, 120), sigma = c(11, 11*2), iMixWeights=c(0.5, 0.5), nu=c(3, 3))
 } 
 
 ## give initial values function to stan
 # l = lapply(1, initf)
-fit.stanTMix = sampling(stanDso.Tmix, data=lStanData, iter=2000, chains=4, init=initf, cores=4)
+fit.stanTMix = sampling(stanDso.Tmix, data=lStanData, iter=1000, chains=4, init=initf, cores=4)
 print(fit.stanTMix, digi=3)
 traceplot(fit.stanTMix)
 
@@ -642,6 +642,9 @@ mChecks['Mean', 6] = getPValue(t1, t2)
 plot(density(ivTime))
 temp = apply(mDraws, 2, function(x) lines(density(x), col=2))
 
+######################### stop here, the other sections below are just testing other sizes
+##########################################################################################
+##########################################################################################
 
 ################### try a mixture of 3 t distributions
 
@@ -818,166 +821,4 @@ mChecks['Max', 7] = getPValue(t1, t2)
 t1 = apply(mDraws, 2, T1_mean)
 t2 = T1_mean(lData$vector)
 mChecks['Mean', 7] = getPValue(t1, t2)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-######################### try a third distribution, t with a low degrees of freedom
-lp3 = function(theta, data){
-  # function to use to use scale parameter
-  ## see here https://grollchristian.wordpress.com/2013/04/30/students-t-location-scale/
-  #dt_ls = function(x, df, mu, a) 1/a * dt((x - mu)/a, df)
-  ## likelihood function
-  # lf = function(dat, nu, pred, sigma){
-  #   return(dt_ls(dat, nu, pred, sigma))
-  # }
-  # nu1 = exp(theta['nu1']) ## normality parameter for t distribution
-  # nu2 = exp(theta['nu2']) ## normality parameter for t distribution
-  # nu3 = exp(theta['nu3']) ## normality parameter for t distribution
-  sigma1 = exp(theta['sigma1']) # scale parameter for t distribution
-  sigma2 = exp(theta['sigma2']) # scale parameter for t distribution
-  sigma3 = exp(theta['sigma3']) # scale parameter for t distribution
-  m1 = theta['mu1']
-  m2 = theta['mu2']
-  m3 = theta['mu3']
-  mix1 = 0.5 #logit.inv(theta['mix1'])
-  mix2 = 0.3 #logit.inv(theta['mix2'])
-  mix3 = 0.2 #logit.inv(theta['mix3'])
-  d = data$vector # observed data vector
-  if (sigma1 < 1 || sigma2 < 1 || sigma3 < 1) return(-Inf)
-  log.lik1 = (dnorm(d, m1, sigma1) * (mix1))
-  log.lik2 = (dnorm(d, m2, sigma2) * (mix2))
-  log.lik3 = (dnorm(d, m3, sigma3) * (mix3))
-  log.lik = sum(log(log.lik1 + log.lik2 + log.lik3))
-  log.prior = 1 + dcauchy(sigma1, 0, 2.5, log=T) + dcauchy(sigma2, 0, 2.5, log=T) + dcauchy(sigma3, 0, 2.5, log=T) # +
-    #log(ddirichlet(c(mix1, mix2, mix3), alpha = c(2, 2, 2)))
-  log.post = log.lik + log.prior
-  return(log.post)
-}
-
-# sanity check for function
-library(numDeriv)
-library(car)
-library(MCMCpack)
-logit.inv = function(p) {exp(p)/(exp(p)+1) }
-# choose a starting value
-start = c('mu1'=mean(ivTime), 'mu2'=mean(ivTime), 'mu3'=mean(ivTime), 'sigma1'=log(sd(ivTime)),
-          'sigma2'=log(sd(ivTime)), 'sigma3'=log(sd(ivTime)))#, 'mix1'=logit(0.5), 'mix2'=logit(0.3), 'mix3'=logit(0.2))
-lp3(start, lData)
-
-start2 = temp2[-c(7:9)]
-start2[4:6] = log(start2[4:6])
-#start2[7:9] = logit(start2[7:9])
-lp3(start2, lData)
-fit.stan
-
-op = optim(start, lp3, control = list(fnscale = -1), data=lData)
-op$par
-logit.inv(op$par[7:9])
-
-mylaplace = function (logpost, mode, data)
-{
-  options(warn = -1)
-  fit = optim(mode, logpost, gr = NULL,
-              control = list(fnscale = -1, maxit=10000), method='Nelder-Mead', data=data)
-  # calculate hessian
-  fit$hessian = (hessian(logpost, fit$par, data=data))
-  colnames(fit$hessian) = names(mode)
-  rownames(fit$hessian) = names(mode)
-  options(warn = 0)
-  mode = fit$par
-  h = -solve(fit$hessian)
-  stuff = list(mode = mode, var = h, converge = fit$convergence ==
-                 0)
-  return(stuff)
-}
-
-
-## try the laplace function from LearnBayes
-fit3 = mylaplace(lp3, start, lData)
-fit3
-se3 = sqrt(diag(fit3$var))
-
-# taking the sample
-tpar = list(m=fit3$mode, var=fit3$var*2, df=4)
-muSample2.op = sir(lp3, tpar, 10000, lData)
-m = extract(fit.stan)
-muSample2.op = do.call(cbind, m)
-muSample2.op = muSample2.op[,-(ncol(muSample2.op))]
-colnames(muSample2.op) = c('mu1', 'mu2', 'mu3', 'sigma1', 'sigma2', 'sigma3', 'nu1', 'nu2', 'nu3', 'mix1', 'mix2', 'mix3')
-
-########## simulate 200 test quantities
-mDraws = matrix(NA, nrow = length(ivTime), ncol=2000)
-
-for (i in 1:200){
-  p = sample(1:nrow(muSample2.op), size = 1)
-  ## this will take a sample from a mixture distribution distribution
-  sam = function() {
-    ind = c(0.5, 0.3, 0.2)#rmultinom(1, 1, muSample2.op[p, c('mix1', 'mix2', 'mix3')])
-    return(ind[1] * rnorm(1, mean = muSample2.op[p,'mu1'], sd = exp(muSample2.op[p,'sigma1'])) +
-             ind[2] * rnorm(1, mean = muSample2.op[p,'mu2'], sd = exp(muSample2.op[p,'sigma2'])) +
-             ind[3] * rnorm(1, mean = muSample2.op[p,'mu3'], sd = exp(muSample2.op[p,'sigma3'])))
-  }
-  mDraws[,i] = replicate(length(ivTime), sam())
-}
-# rt_ls <- function(n, df, mu, a) rt(n,df)*a + mu
-# for (i in 1:200){
-#   p = sample(1:nrow(muSample2.op), size = 1)
-#   ## this will take a sample from a mixture distribution distribution
-#   sam = function() {
-#     ind = rmultinom(1, 1, muSample2.op[p, c('mix1', 'mix2', 'mix3')])
-#     return(ind[1, 1] * rt_ls(1, df = muSample2.op[p,'nu1'], mu = muSample2.op[p,'mu1'], a = muSample2.op[p,'sigma1']) +
-#              ind[2, 1] * rt_ls(1, df = muSample2.op[p,'nu2'], mu = muSample2.op[p,'mu2'], a = muSample2.op[p,'sigma2']) + 
-#              ind[3, 1] * rt_ls(1, df = muSample2.op[p,'nu3'], mu = muSample2.op[p,'mu3'], a = muSample2.op[p,'sigma3']))
-#   }
-#   mDraws[,i] = replicate(length(ivTime), sam())
-# }
-
-
-
-mDraws.t = mDraws
-## get the p-values for the test statistics
-t1 = apply(mDraws, 2, T1_var)
-mChecks['Variance', 3] = getPValue(t1, var(lData$vector))
-
-## test for symmetry
-t1 = sapply(seq_along(1:200), function(x) T1_symmetry(mDraws[,x], mThetas[x,'mu']))
-t2 = sapply(seq_along(1:200), function(x) T1_symmetry(lData$vector, mThetas[x,'mu']))
-plot(t2, t1, xlim=c(-12, 12), ylim=c(-12, 12), pch=20, xlab='Realized Value T(Yobs, Theta)',
-     ylab='Test Value T(Yrep, Theta)', main='Symmetry Check (T Distribution)')
-abline(0,1)
-mChecks['Symmetry', 3] = getPValue(t1, t2) 
-
-## testing for outlier detection i.e. the minimum value show in the histograms earlier
-t1 = apply(mDraws, 2, T1_min)
-t2 = T1_min(lData$vector)
-mChecks['Min', 3] = getPValue(t1, t2)
-
-## maximum value
-t1 = apply(mDraws, 2, T1_max)
-t2 = T1_max(lData$vector)
-mChecks['Max', 3] = getPValue(t1, t2)
-
-## mean value
-t1 = apply(mDraws, 2, T1_mean)
-t2 = T1_mean(lData$vector)
-mChecks['Mean', 3] = getPValue(t1, t2)
-
-mChecks
 
