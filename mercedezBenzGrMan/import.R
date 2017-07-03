@@ -551,6 +551,118 @@ t1 = apply(mDraws, 2, T1_mean)
 t2 = T1_mean(lData$vector)
 mChecks['Mean', 5] = getPValue(t1, t2)
 
+######## try a tmixture distribution
+stanDso.Tmix = rstan::stan_model(file='mercedezBenzGrMan/fitStudentTMixture.stan')
+
+## take a subset of the data
+i = sample(1:length(ivTime), size = 300, replace = F)
+lStanData = list(Ntotal=length(ivTime[i]), y=ivTime[i], iMixtures=2)
+
+## give initial values
+initf = function(chain_id = 1) {
+  list(mu = c(90, 110), sigma = c(11, 11*2), iMixWeights=c(0.5, 0.5), nu=c(3, 3))
+} 
+
+## give initial values function to stan
+# l = lapply(1, initf)
+fit.stanTMix = sampling(stanDso.Tmix, data=lStanData, iter=600, chains=4, init=initf, cores=4)
+print(fit.stanTMix, digi=3)
+traceplot(fit.stanTMix)
+
+## check if labelling degeneracy has occured
+## see here: http://mc-stan.org/users/documentation/case-studies/identifying_mixture_models.html
+params1 = as.data.frame(extract(fit.stanTMix, permuted=FALSE)[,1,])
+params2 = as.data.frame(extract(fit.stanTMix, permuted=FALSE)[,2,])
+params3 = as.data.frame(extract(fit.stanTMix, permuted=FALSE)[,3,])
+params4 = as.data.frame(extract(fit.stanTMix, permuted=FALSE)[,4,])
+
+## check if the means from different chains overlap
+par(mfrow=c(2,2))
+plot(params1$`mu[1]`, params1$`mu[2]`, pch=20, col=2)
+plot(params2$`mu[1]`, params2$`mu[2]`, pch=20, col=3)
+plot(params3$`mu[1]`, params3$`mu[2]`, pch=20, col=4)
+plot(params4$`mu[1]`, params4$`mu[2]`, pch=20, col=5)
+
+par(mfrow=c(1,1))
+plot(params1$`mu[1]`, params1$`mu[2]`, pch=20, col=2, xlim=c(85, 95), ylim=c(95, 115))
+points(params2$`mu[1]`, params2$`mu[2]`, pch=20, col=3)
+points(params3$`mu[1]`, params3$`mu[2]`, pch=20, col=4)
+points(params4$`mu[1]`, params4$`mu[2]`, pch=20, col=5)
+
+############# extract the mcmc sample values from stan
+mStan = do.call(cbind, extract(fit.stanTMix))
+mStan = mStan[,-(ncol(mStan))]
+colnames(mStan) = c('mu1', 'mu2', 'sigma1', 'sigma2', 'nu1', 'nu2', 'mix1', 'mix2')
+
+## get a sample for this distribution
+########## simulate 200 test quantities
+mDraws = matrix(NA, nrow = length(ivTime), ncol=200)
+
+for (i in 1:200){
+  p = sample(1:nrow(mStan), size = 1)
+  mix = mean(mStan[,'mix1'])
+  ## this will take a sample from a normal mixture distribution
+  sam = function() {
+    ind = rbinom(1, 1, prob = mix)
+    return(ind * rt_ls(n = 1, df = mStan[p, 'nu1'], mu = mStan[p, 'mu1'], a = mStan[p, 'sigma1']) + 
+             (1-ind) * rt_ls(n = 1, df = mStan[p, 'nu2'], mu = mStan[p, 'mu2'], a = mStan[p, 'sigma2']))
+  }
+  mDraws[,i] = replicate(length(ivTime), sam())
+}
+
+mDraws.studentMix = mDraws
+
+t1 = apply(mDraws, 2, T1_var)
+mChecks['Variance', 6] = getPValue(t1, var(lData$vector))
+
+# ## test for symmetry
+# t1 = sapply(seq_along(1:200), function(x) T1_symmetry(mDraws[,x], mThetas[x,'mu']))
+# t2 = sapply(seq_along(1:200), function(x) T1_symmetry(lData$vector, mThetas[x,'mu']))
+# plot(t2, t1, xlim=c(-12, 12), ylim=c(-12, 12), pch=20, xlab='Realized Value T(Yobs, Theta)',
+#      ylab='Test Value T(Yrep, Theta)', main='Symmetry Check (T Distribution)')
+# abline(0,1)
+# mChecks['Symmetry', 5] = NA; #getPValue(t1, t2) 
+
+## testing for outlier detection i.e. the minimum value show in the histograms earlier
+t1 = apply(mDraws, 2, T1_min)
+t2 = T1_min(lData$vector)
+mChecks['Min', 6] = getPValue(t1, t2)
+
+## maximum value
+t1 = apply(mDraws, 2, T1_max)
+t2 = T1_max(lData$vector)
+mChecks['Max', 6] = getPValue(t1, t2)
+
+## mean value
+t1 = apply(mDraws, 2, T1_mean)
+t2 = T1_mean(lData$vector)
+mChecks['Mean', 6] = getPValue(t1, t2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ######################### try a third distribution, t with a low degrees of freedom
 lp3 = function(theta, data){
   # function to use to use scale parameter
