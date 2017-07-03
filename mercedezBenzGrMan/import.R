@@ -11,10 +11,49 @@ set.seed(123) # for replication
 dfData = read.csv('mercedezBenzGrMan/DataExternal/train.csv', header=T)
 dim(dfData)
 head(dfData)
+dfData = dfData[,-1]
+# library(lattice)
+# densityplot(~ y, data=dfData, groups=X0)
+# 
+# library(randomForest)
+# set.seed(123)
+# fit.rf = randomForest(y ~ ., data=dfData)
+# # get variables importance
+# varImpPlot(fit.rf)
+# dfRF = data.frame(importance(fit.rf))
+# head(dfRF)
+# ivScore = dfRF$IncNodePurity
+# names(ivScore) = rownames(dfRF)
+# ivScore = sort(ivScore, decreasing = T)
+# head(ivScore)
+# # remove lowest scores 
+# length(ivScore)
+# ivScore = ivScore[1:15]
+# tail(ivScore)
+# dfData.sub = dfData[,names(ivScore)]
+# 
+# ##################### try with CCrossvalidation library
+# if(!require(downloader) || !require(methods)) stop('Library downloader and methods required')
+# 
+# url = 'https://raw.githubusercontent.com/uhkniazi/CCrossValidation/master/CCrossValidation.R'
+# download(url, 'CCrossValidation.R')
+# 
+# # load the required packages
+# source('CCrossValidation.R')
+# # delete the file after source
+# unlink('CCrossValidation.R')
+# 
+# o = CVariableSelection.ReduceModel(dfData.sub, dfData$y, 10)
+# plot.var.selection(o)
 
 ivTime = dfData$y
 summary(ivTime)
 sd(ivTime)
+
+# remove the outlier observation
+ivTime = ivTime[-(which.max(ivTime))]
+
+#### identify the appropriate distribution
 
 ## define a log posterior function
 lp = function(theta, data){
@@ -71,7 +110,12 @@ for (i in 1:20){
 
 p.old = par(mfrow=c(3, 3))
 garbage = apply(mDraws, 2, function(x) hist(x, main='', xlab='', ylab=''))
-hist(ivTime, xlab='Speed of light measurements', main='')
+hist(ivTime, xlab='Original', main='')
+
+par(p.old)
+
+plot(density(ivTime))
+temp = apply(mDraws, 2, function(x) lines(density(x), col=2))
 
 ## calculate bayesian p-value for this test statistic
 getPValue = function(Trep, Tobs){
@@ -108,9 +152,9 @@ T1_mean = function(Y){
 } 
 
 ## mChecks
-mChecks = matrix(NA, nrow=5, ncol=3)
+mChecks = matrix(NA, nrow=5, ncol=4)
 rownames(mChecks) = c('Variance', 'Symmetry', 'Max', 'Min', 'Mean')
-colnames(mChecks) = c('Normal', 'NormalCont', 'T')
+colnames(mChecks) = c('Normal', 'NormalCont', 'T', 'Cauchy')
 ########## simulate 200 test quantities
 mDraws = matrix(NA, nrow = length(ivTime), ncol=200)
 mThetas = matrix(NA, nrow=200, ncol=2)
@@ -127,11 +171,10 @@ for (i in 1:200){
 mDraws.norm = mDraws
 ### get the test quantity from the test function
 t1 = apply(mDraws, 2, T1_var)
-par(p.old)
-hist(t1, xlab='Test Quantity - Variance (Normal Model)', main='', breaks=50)
-abline(v = var(lData$vector), lwd=2)
+# par(p.old)
+# hist(t1, xlab='Test Quantity - Variance (Normal Model)', main='', breaks=50)
+# abline(v = var(lData$vector), lwd=2)
 mChecks['Variance', 1] = getPValue(t1, var(lData$vector))
-# 0.48, the result from Figure 6.4 Gelman [2013]
 # The sample variance does not make a good test statistic because it is a sufficient statistic of
 # the model and thus, in the absence of an informative prior distribution, the posterior
 # distribution will automatically be centered near the observed value. We are not at all
@@ -143,9 +186,7 @@ t2 = sapply(seq_along(1:200), function(x) T1_symmetry(lData$vector, mThetas[x,'m
 plot(t2, t1, xlim=c(-12, 12), ylim=c(-12, 12), pch=20, xlab='Realized Value T(Yobs, Theta)',
      ylab='Test Value T(Yrep, Theta)', main='Symmetry Check (Normal Model)')
 abline(0,1)
-mChecks['Symmetry', 1] = getPValue(t1, t2) # we should see somewhere around 0.1 to 0.2 on repeated simulations
-# The estimated p-value is 0.26, implying that any observed asymmetry in the middle of the distribution can easily be
-# explained by sampling variation. [Gelman 2008]
+mChecks['Symmetry', 1] = getPValue(t1, t2) 
 
 ## testing for outlier detection i.e. the minimum value show in the histograms earlier
 t1 = apply(mDraws, 2, T1_min)
@@ -213,9 +254,10 @@ for (i in 1:200){
   s = exp(sigSample.op[p])
   m = muSample.op[p]
   co = contSample.op[p]
+  mix = 0.95
   ## this will take a sample from a contaminated normal distribution
   sam = function() {
-    ind = rbinom(1, 1, 0.95)
+    ind = rbinom(1, 1, prob = mix)
     return(ind * rnorm(1, m, s) + (1-ind) * rnorm(1, m, s*co))
   }
   mDraws[,i] = replicate(length(ivTime), sam())
@@ -249,6 +291,179 @@ mChecks['Max', 2] = getPValue(t1, t2)
 t1 = apply(mDraws, 2, T1_mean)
 t2 = T1_mean(lData$vector)
 mChecks['Mean', 2] = getPValue(t1, t2)
+
+## try a heavy tailed t distribution
+######################### try a third distribution, t with a low degrees of freedom
+lp3 = function(theta, data){
+  # function to use to use scale parameter
+  ## see here https://grollchristian.wordpress.com/2013/04/30/students-t-location-scale/
+  dt_ls = function(x, df, mu, a) 1/a * dt((x - mu)/a, df)
+  ## likelihood function
+  lf = function(dat, pred){
+    return(log(dt_ls(dat, nu, pred, sigma)))
+  }
+  nu = exp(theta['nu']) ## normality parameter for t distribution
+  sigma = exp(theta['sigma']) # scale parameter for t distribution
+  m = theta[1]
+  d = data$vector # observed data vector
+  if (exp(nu) < 1) return(-Inf)
+  log.lik = sum(lf(d, m))
+  log.prior = 1
+  log.post = log.lik + log.prior
+  return(log.post)
+}
+
+# sanity check for function
+# choose a starting value
+start = c('mu'=mean(ivTime), 'sigma'=log(sd(ivTime)), 'nu'=log(2))
+lp3(start, lData)
+
+op = optim(start, lp3, control = list(fnscale = -1), data=lData)
+op$par
+exp(op$par[2:3])
+
+## try the laplace function from LearnBayes
+fit3 = laplace(lp3, start, lData)
+fit3
+se3 = sqrt(diag(fit3$var))
+
+# taking the sample
+tpar = list(m=fit3$mode, var=fit3$var*2, df=4)
+muSample2.op = sir(lp3, tpar, 1000, lData)
+
+sigSample.op = muSample2.op[,'sigma']
+muSample.op = muSample2.op[,'mu']
+nuSample.op = muSample2.op[,'nu']
+
+## generate random samples from alternative t-distribution parameterization
+## see https://grollchristian.wordpress.com/2013/04/30/students-t-location-scale/
+rt_ls <- function(n, df, mu, a) rt(n,df)*a + mu
+
+########## simulate 200 test quantities
+mDraws = matrix(NA, nrow = length(ivTime), ncol=200)
+mThetas = matrix(NA, nrow=200, ncol=3)
+colnames(mThetas) = c('mu', 'sd', 'nu')
+
+for (i in 1:200){
+  p = sample(1:1000, size = 1)
+  s = exp(sigSample.op[p])
+  m = muSample.op[p]
+  n = exp(nuSample.op[p])
+  mDraws[,i] = rt_ls(length(ivTime), n, m, s)
+  mThetas[i,] = c(m, s, n)
+}
+
+mDraws.t = mDraws
+## get the p-values for the test statistics
+t1 = apply(mDraws, 2, T1_var)
+mChecks['Variance', 3] = getPValue(t1, var(lData$vector))
+
+## test for symmetry
+t1 = sapply(seq_along(1:200), function(x) T1_symmetry(mDraws[,x], mThetas[x,'mu']))
+t2 = sapply(seq_along(1:200), function(x) T1_symmetry(lData$vector, mThetas[x,'mu']))
+plot(t2, t1, xlim=c(-12, 12), ylim=c(-12, 12), pch=20, xlab='Realized Value T(Yobs, Theta)',
+     ylab='Test Value T(Yrep, Theta)', main='Symmetry Check (T Distribution)')
+abline(0,1)
+mChecks['Symmetry', 3] = getPValue(t1, t2) 
+
+## testing for outlier detection i.e. the minimum value show in the histograms earlier
+t1 = apply(mDraws, 2, T1_min)
+t2 = T1_min(lData$vector)
+mChecks['Min', 3] = getPValue(t1, t2)
+
+## maximum value
+t1 = apply(mDraws, 2, T1_max)
+t2 = T1_max(lData$vector)
+mChecks['Max', 3] = getPValue(t1, t2)
+
+## mean value
+t1 = apply(mDraws, 2, T1_mean)
+t2 = T1_mean(lData$vector)
+mChecks['Mean', 3] = getPValue(t1, t2)
+
+mChecks
+
+
+############### try a cauchy distribution
+lp4 = function(theta, data){
+  sigma = exp(theta['sigma']) # scale parameter for cauchy distribution
+  m = theta[1]
+  d = data$vector # observed data vector
+  if (sigma < 0) return(-Inf)
+  log.lik = sum(dcauchy(d, m, sigma, log=T))
+  log.prior = 1
+  log.post = log.lik + log.prior
+  return(log.post)
+}
+
+# sanity check for function
+# choose a starting value
+start = c('mu'=mean(ivTime), 'sigma'=log(sd(ivTime)))
+lp4(start, lData)
+
+op = optim(start, lp4, control = list(fnscale = -1), data=lData)
+op$par
+exp(op$par[2])
+
+## try the laplace function from LearnBayes
+fit4 = laplace(lp4, start, lData)
+fit4
+se4 = sqrt(diag(fit4$var))
+
+# taking the sample
+tpar = list(m=fit4$mode, var=fit4$var*2, df=4)
+muSample2.op = sir(lp4, tpar, 1000, lData)
+
+sigSample.op = muSample2.op[,'sigma']
+muSample.op = muSample2.op[,'mu']
+
+########## simulate 200 test quantities
+mDraws = matrix(NA, nrow = length(ivTime), ncol=200)
+mThetas = matrix(NA, nrow=200, ncol=2)
+colnames(mThetas) = c('mu', 'sd')
+
+for (i in 1:200){
+  p = sample(1:1000, size = 1)
+  s = exp(sigSample.op[p])
+  m = muSample.op[p]
+  mDraws[,i] = rcauchy(length(ivTime), m, s)
+  mThetas[i,] = c(m, s)
+}
+
+mDraws.cauchy = mDraws
+## get the p-values for the test statistics
+t1 = apply(mDraws, 2, T1_var)
+mChecks['Variance', 4] = getPValue(t1, var(lData$vector))
+
+## test for symmetry
+t1 = sapply(seq_along(1:200), function(x) T1_symmetry(mDraws[,x], mThetas[x,'mu']))
+t2 = sapply(seq_along(1:200), function(x) T1_symmetry(lData$vector, mThetas[x,'mu']))
+plot(t2, t1, xlim=c(-12, 12), ylim=c(-12, 12), pch=20, xlab='Realized Value T(Yobs, Theta)',
+     ylab='Test Value T(Yrep, Theta)', main='Symmetry Check (T Distribution)')
+abline(0,1)
+mChecks['Symmetry', 4] = getPValue(t1, t2) 
+
+## testing for outlier detection i.e. the minimum value show in the histograms earlier
+t1 = apply(mDraws, 2, T1_min)
+t2 = T1_min(lData$vector)
+mChecks['Min', 4] = getPValue(t1, t2)
+
+## maximum value
+t1 = apply(mDraws, 2, T1_max)
+t2 = T1_max(lData$vector)
+mChecks['Max', 4] = getPValue(t1, t2)
+
+## mean value
+t1 = apply(mDraws, 2, T1_mean)
+t2 = T1_mean(lData$vector)
+mChecks['Mean', 4] = getPValue(t1, t2)
+
+##################### either a contaminated normal or a normal mixture distribution should work perhaps
+#################### continue with some normal mixture models
+
+
+
+
 
 
 ############################### fit a model using stan to estimate mixture parameters
