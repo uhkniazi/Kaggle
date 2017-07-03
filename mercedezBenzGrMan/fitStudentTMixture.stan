@@ -5,8 +5,8 @@ data {
 }
 
 parameters { // the parameters to track
-    //ordered[iMixtures] mu; // number of means to track
-    real mu[iMixtures]; // number of means to track
+    ordered[iMixtures] mu; // number of means to track Breaking the Labeling Degeneracy by Enforcing an Ordering
+    //real mu[iMixtures]; // number of means to track
     real<lower=0> sigma[iMixtures]; // scale parameters for normal distribution  
     real<lower=1> nu[iMixtures];
     simplex[iMixtures] iMixWeights; // weights for the number of mixtures (should sum to one)
@@ -19,8 +19,8 @@ model {
   real ps[iMixtures]; // temporary variable for log components
   // any priors go here 
   nu ~ exponential(1/29.0);
-  mu ~ normal(0, 100);
-  sigma ~ cauchy(0, 2.5);
+  mu ~ normal(100, 12);
+  sigma ~ cauchy(0, 2.5); // weak prior
   iMixWeights ~ dirichlet(rep_vector(2.0, iMixtures));
   // loop to calculate likelihood
   for(n in 1:Ntotal){
