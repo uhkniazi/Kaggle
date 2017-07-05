@@ -5,7 +5,12 @@ data {
     int<lower=1> Ncol; // total number of columns in model matrix
     matrix[Ntotal, Ncol] X; // model matrix
 }
-
+transformed data{
+  real betaShape;
+  real betaRate;
+  betaShape = 0.5;
+  betaRate = 1e-4;
+}
 parameters { // the parameters to track
     real<lower=0> sigma[iMixtures]; // scale parameters for normal distribution  
     simplex[iMixtures] iMixWeights; // weights for the number of mixtures (should sum to one)
@@ -13,6 +18,7 @@ parameters { // the parameters to track
     vector[(Ncol-1)] betasMix2; // regression parameters for each mixture component
     ordered[iMixtures] mu; // ordered intercept
     real<lower=1> nu[iMixtures]; // degrees of freedom parameter
+    real<lower=0.1> betaSigma; // standard deviation parameter for the joint prior for betas
   }
 transformed parameters { // calculated parameters
     vector[Ntotal] muMix1; // number of fitted values
@@ -30,8 +36,10 @@ model {
   nu ~ exponential(1/29.0);
   mu[1] ~ normal(80, 10);
   mu[2] ~ normal(110, 10);
-  betasMix1 ~ cauchy(0, 10);
-  betasMix2 ~ cauchy(0, 10);
+  betasMix1 ~ normal(0, betaSigma);
+  betasMix2 ~ normal(0, betaSigma);
+  // prior for standard deviations of coefficients
+  betaSigma ~ gamma(betaShape, betaRate);
   sigma ~ cauchy(0, 2.5); // weak prior
   iMixWeights ~ dirichlet(rep_vector(2.0, iMixtures));
   // loop to calculate likelihood
@@ -42,3 +50,4 @@ model {
     target += log_sum_exp(ps);
   }
 }
+
