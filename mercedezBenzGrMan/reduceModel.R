@@ -21,14 +21,37 @@ i = sample(1:nrow(dfData), size = nrow(dfData)*0.30, replace = F)
 dfData.val = dfData[i,]
 dfData.train = dfData[-i,]
 
-dfData = dfData.train
+library(randomForest)
+set.seed(123)
+
+
+fit.rf = randomForest(y ~ ., data=dfData.train)
+# get variables importance
+varImpPlot(fit.rf)
+dfRF = data.frame(importance(fit.rf))
+head(dfRF)
+ivScore = dfRF$IncNodePurity
+names(ivScore) = rownames(dfRF)
+ivScore = sort(ivScore, decreasing = T)
+head(ivScore)
+hist(ivScore)
+# take the top 20 variables
+length(ivScore)
+ivScore = ivScore[1:20]
+tail(ivScore)
+
+## take a subset of this data
+dfData.train.rf1 = dfData.train[,c('y', names(ivScore))]
+
+dfData = dfData.train.rf1
+dim(dfData)
 ## take a subset of the training data to fit model
 i = sample(1:nrow(dfData), size = nrow(dfData)*0.30, replace = F)
+dfData.pr = dfData[-i,]
 dfData = dfData[i,]
-
 ## make model matrix and fit model
 m = model.matrix(y ~ ., data=dfData)
-
+dim(m)
 stanDso = rstan::stan_model(file='mercedezBenzGrMan/studentTMixtureRegression.stan')
 
 lStanData = list(Ntotal=nrow(dfData), y=dfData$y, iMixtures=2, Ncol=ncol(m), X=m)
@@ -41,27 +64,52 @@ initf = function(chain_id = 1) {
   list(mu = c(90, 120), sigma = c(11, 11*2), iMixWeights=c(0.5, 0.5), nu=c(3, 3))
 } 
 
-fit.stan = sampling(stanDso, data=lStanData, iter=600, chains=2, init=initf, cores=1)
-print(fit.stanTMix, digi=3)
-traceplot(fit.stanTMix)
+fit.stan = sampling(stanDso, data=lStanData, iter=1200, chains=1, init=initf, cores=1, pars=c('sigma', 'iMixWeights', 'betasMix1',
+                                                                                             'betasMix2', 'mu', 'nu'))
+print(fit.stan, digi=3)
+#traceplot(fit.stanTMix)
 
-## check if labelling degeneracy has occured
-## see here: http://mc-stan.org/users/documentation/case-studies/identifying_mixture_models.html
-params1 = as.data.frame(extract(fit.stan, permuted=FALSE)[,1,])
-params2 = as.data.frame(extract(fit.stan, permuted=FALSE)[,2,])
-params3 = as.data.frame(extract(fit.stan, permuted=FALSE)[,3,])
-params4 = as.data.frame(extract(fit.stan, permuted=FALSE)[,4,])
+## get fitted values
+m = extract(fit.stan)
+names(m)
 
-## check if the means from different chains overlap
-## Labeling Degeneracy by Enforcing an Ordering
-par(mfrow=c(2,2))
-plot(params1$`mu[1]`, params1$`mu[2]`, pch=20, col=2)
-plot(params2$`mu[1]`, params2$`mu[2]`, pch=20, col=3)
-plot(params3$`mu[1]`, params3$`mu[2]`, pch=20, col=4)
-plot(params4$`mu[1]`, params4$`mu[2]`, pch=20, col=5)
+## get the coefficients
+iModel.1 = c(mean(m$mu[,1]), apply(m$betasMix1, 2, mean))
+iModel.2 = c(mean(m$mu[,2]), apply(m$betasMix2, 2, mean))
+iMixWeights = apply(m$iMixWeights, 2, mean)
 
-par(mfrow=c(1,1))
-plot(params1$`mu[1]`, params1$`mu[2]`, pch=20, col=2, xlim=c(3, 28), ylim=c(28, 42))
-points(params2$`mu[1]`, params2$`mu[2]`, pch=20, col=3)
-points(params3$`mu[1]`, params3$`mu[2]`, pch=20, col=4)
-points(params4$`mu[1]`, params4$`mu[2]`, pch=20, col=5)
+## calculate training error
+iPred1 = model.matrix(y ~ ., data=dfData) %*% iModel.1
+iPred2 = model.matrix(y ~ ., data=dfData) %*% iModel.2
+## get aggregate
+iAggregate = cbind(iPred1, iPred2)
+iAggregate = sweep(iAggregate, 2, iMixWeights, '*')
+iAggregate = rowSums(iAggregate)
+iMSE.train = mean((iAggregate - dfData$y)^2)
+
+## repeat on the test and validation data
+## calculate training error
+iPred1 = model.matrix(y ~ ., data=dfData.pr) %*% iModel.1
+iPred2 = model.matrix(y ~ ., data=dfData.pr) %*% iModel.2
+## get aggregate
+iAggregate = cbind(iPred1, iPred2)
+iAggregate = sweep(iAggregate, 2, iMixWeights, '*')
+iAggregate = rowSums(iAggregate)
+iMSE.test.pr = mean((iAggregate - dfData.pr$y)^2)
+
+## try on the validation set
+## repeat on the test and validation data
+## calculate training error
+iPred1 = model.matrix(y ~ ., data=dfData.val[,colnames(dfData.pr)]) %*% iModel.1
+iPred2 = model.matrix(y ~ ., data=dfData.val[,colnames(dfData.pr)]) %*% iModel.2
+## get aggregate
+iAggregate = cbind(iPred1, iPred2)
+iAggregate = sweep(iAggregate, 2, iMixWeights, '*')
+iAggregate = rowSums(iAggregate)
+iMSE.val = mean((iAggregate - dfData.val$y)^2)
+
+#### refit the model again but on a different and larger subset of the data to see if error rate improves
+
+
+
+
