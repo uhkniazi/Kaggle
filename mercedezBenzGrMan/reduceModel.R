@@ -177,7 +177,7 @@ iMSE.val2 = mean((iAggregate - dfData.val$y)^2)
 dfData = dfData.train.rf1
 dim(dfData)
 ## take a subset of the training data to fit model
-i = sample(1:nrow(dfData), size = nrow(dfData)*0.10, replace = F)
+i = sample(1:nrow(dfData), size = nrow(dfData)*0.80, replace = F)
 dfData.pr = dfData[-i,]
 dfData = dfData[i,]
 ## make model matrix and fit model
@@ -192,7 +192,7 @@ initf = function(chain_id = 1) {
   list(mu = c(75, 90, 120), sigma = c(5, 11, 11*2), iMixWeights=c(0.3, 0.3, 0.4), nu=c(3, 3, 3))
 } 
 
-fit.stan3 = sampling(stanDso, data=lStanData, iter=1200, chains=1, init=initf, cores=1, pars=c('sigma', 'iMixWeights', 'betasMix1',
+fit.stan3 = sampling(stanDso, data=lStanData, iter=2000, chains=1, init=initf, cores=1, pars=c('sigma', 'iMixWeights', 'betasMix1',
                                                                                               'betasMix2', 'betasMix3', 'mu', 'nu',
                                                                                               'betaSigma'))
 print(fit.stan3, digi=3)
