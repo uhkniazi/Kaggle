@@ -12,13 +12,13 @@ transformed data{
   betaRate = 1e-4;
 }
 parameters { // the parameters to track
-    real<lower=0> sigma[iMixtures]; // scale parameters for normal distribution  
+    real<lower=0> sigma[iMixtures]; // scale parameters for t distribution  
     simplex[iMixtures] iMixWeights; // weights for the number of mixtures (should sum to one)
     vector[(Ncol-1)] betasMix1; // regression parameters for each mixture component
     vector[(Ncol-1)] betasMix2; // regression parameters for each mixture component
     ordered[iMixtures] mu; // ordered intercept
     real<lower=1> nu[iMixtures]; // degrees of freedom parameter
-    real<lower=0.1> betaSigma; // standard deviation parameter for the joint prior for betas
+    real<lower=0.1> betaSigma[iMixtures]; // standard deviation parameter for the joint prior for betas
   }
 transformed parameters { // calculated parameters
     vector[Ntotal] muMix1; // number of fitted values
@@ -36,8 +36,8 @@ model {
   nu ~ exponential(1/29.0);
   mu[1] ~ normal(80, 10);
   mu[2] ~ normal(110, 10);
-  betasMix1 ~ normal(0, betaSigma);
-  betasMix2 ~ normal(0, betaSigma);
+  betasMix1 ~ normal(0, betaSigma[1]);
+  betasMix2 ~ normal(0, betaSigma[2]);
   // prior for standard deviations of coefficients
   betaSigma ~ gamma(betaShape, betaRate);
   sigma ~ cauchy(0, 2.5); // weak prior
